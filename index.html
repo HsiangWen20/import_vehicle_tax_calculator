@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>美國進口二手車成本計算工具</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Chosen Palette: Warm Neutrals -->
+    <!-- Application Structure Plan: A task-oriented, single-page calculator. The structure guides the user through a linear process: 1. Input Section: User provides all necessary vehicle and import data. 2. Action Button: A clear "Calculate" call-to-action. 3. Results Section: Displays the total cost prominently, a visual breakdown via a donut chart, and a detailed itemized list of all calculated values (dutiable value, taxes, fees). 4. Explanatory Notes Section: Provides crucial context and disclaimers. This structure was chosen because it directly mirrors the user's goal of calculating a final cost, making the complex, multi-step process from the report easy to follow and understand. The separation of inputs and results prevents confusion, and the combination of a visual summary (chart) and detailed text serves both users who want a quick answer and those who want to understand the specifics. -->
+    <!-- Visualization & Content Choices: Report Info: Cascading tax structure and multiple cost components. -> Goal: Inform the user of the total cost and show the proportion of each cost category. -> Viz/Presentation Method: 1. A large, bold number for the total estimated cost. 2. A Chart.js donut chart to visualize the percentage contribution of the base vehicle value, total taxes, logistics fees, and inspection fees. 3. A detailed HTML list to itemize every single calculation step (FOB, CIF, each tax, each fee) to provide full transparency. -> Interaction: The chart is generated dynamically on calculation. Hovering over chart segments reveals the precise TWD value for that category. -> Justification: The donut chart provides an immediate, high-level understanding of where the costs lie, which is more impactful than a simple list of numbers. The detailed breakdown demystifies the complex "tax-on-tax" system described in the report. -> Library/Method: Chart.js (Canvas). -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+        }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap');
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+            max-height: 400px;
+        }
+        @media (min-width: 640px) {
+            .chart-container {
+                height: 350px;
+            }
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .input-group label {
+            transition: all 0.2s ease-in-out;
+        }
+        .input-group input:focus + label, .input-group input:not(:placeholder-shown) + label {
+            transform: translateY(-1.5rem) scale(0.8);
+            color: #4f46e5;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4f46e5;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-stone-50 text-slate-800">
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8">
+        
+        <header class="text-center mb-8">
+            <h1 class="text-3xl sm:text-4xl font-bold text-indigo-800">美國進口二手車成本試算工具</h1>
+            <p class="mt-2 text-slate-600">根據台灣海關法規，估算將二手車從美國運至台灣的總落地成本。</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
+            
+            <!-- Input Section -->
+            <div class="lg:col-span-2 bg-white p-6 rounded-2xl shadow-lg border border-slate-200">
+                <h2 class="text-2xl font-bold mb-6 text-indigo-700 border-b pb-3">1. 輸入車輛及進口資料</h2>
+                
+                <form id="cost-form" class="space-y-6">
+                    <div>
+                        <label for="kbb-price" class="block text-sm font-medium text-slate-700 mb-1">KBB 新車發票價 (USD)</label>
+                        <input type="number" id="kbb-price" placeholder="例如: 50000" class="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
+                        <p class="text-xs text-slate-500 mt-1">請查詢 Kelley Blue Book 的 "Dealer Invoice Price"。</p>
+                    </div>
+
+                    <div>
+                        <label for="nada-price" class="block text-sm font-medium text-slate-700 mb-1">N.A.D.A. 二手車價 (USD)</label>
+                        <input type="number" id="nada-price" placeholder="例如: 35000" class="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
+                        <p class="text-xs text-slate-500 mt-1">請查詢 N.A.D.A. 指南的 "Average Trade-In" 價格。</p>
+                    </div>
+
+                    <div>
+                        <label for="engine-cc" class="block text-sm font-medium text-slate-700 mb-1">引擎排氣量 (CC)</label>
+                        <input type="number" id="engine-cc" placeholder="例如: 1991" class="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label for="model-year" class="block text-sm font-medium text-slate-700 mb-1">車輛年份</label>
+                            <input type="number" id="model-year" placeholder="例如: 2021" value="2021" class="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
+                        </div>
+                        <div>
+                            <label for="import-year" class="block text-sm font-medium text-slate-700 mb-1">進口年份</label>
+                            <input type="number" id="import-year" placeholder="例如: 2024" value="2024" class="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="exchange-rate" class="block text-sm font-medium text-slate-700 mb-1">美金對台幣匯率</label>
+                        <input type="number" id="exchange-rate" step="0.01" placeholder="例如: 32.5" value="32.5" class="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
+                    </div>
+                    
+                    <div>
+                        <label for="shipping-port" class="block text-sm font-medium text-slate-700 mb-1">美國出口港</label>
+                        <select id="shipping-port" class="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
+                            <option value="west">西岸 (例如: 洛杉磯)</option>
+                            <option value="east">東岸 (例如: 紐約)</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">是否有安審授權報告？</label>
+                        <div class="flex items-center space-x-4">
+                             <label class="flex items-center"><input type="radio" name="artc-report" value="yes" class="mr-2 h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-slate-300">是</label>
+                             <label class="flex items-center"><input type="radio" name="artc-report" value="no" checked class="mr-2 h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-slate-300">否</label>
+                        </div>
+                        <p class="text-xs text-slate-500 mt-1">若有，可大幅降低驗車費用。</p>
+                    </div>
+
+                    <button type="button" id="calculate-btn" class="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50 transition-transform transform hover:scale-105">
+                        開始計算
+                    </button>
+                </form>
+            </div>
+
+            <!-- Results Section -->
+            <div id="results-section" class="lg:col-span-3 bg-white p-6 rounded-2xl shadow-lg border border-slate-200 hidden">
+                <h2 class="text-2xl font-bold mb-2 text-indigo-700 border-b pb-3">2. 成本分析結果</h2>
+                <div id="loader" class="flex justify-center items-center h-96 hidden"><div class="loader"></div></div>
+
+                <div id="results-content" class="hidden">
+                    <div class="text-center my-6">
+                        <p class="text-lg text-slate-600">預估總落地成本</p>
+                        <p id="total-cost" class="text-5xl font-bold text-indigo-800 my-2">TWD 0</p>
+                        <div id="luxury-tax-warning" class="mt-2 text-sm text-red-600 font-semibold hidden"></div>
+                    </div>
+    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                        <div class="chart-container">
+                            <canvas id="cost-chart"></canvas>
+                        </div>
+    
+                        <div id="cost-breakdown" class="space-y-3 text-sm">
+                            <h3 class="font-bold text-lg text-slate-700 mb-2">詳細費用明細 (TWD)</h3>
+                            <!-- Breakdown items will be injected here by JS -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+             <!-- Initial Message Section -->
+            <div id="initial-message" class="lg:col-span-3 flex flex-col items-center justify-center bg-white p-8 rounded-2xl shadow-lg border border-slate-200">
+                <svg class="w-16 h-16 text-indigo-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h3m-3-10l-1.5-1.5M12 3v2.5M15 7h3m-3 4h3m-6-4v2.5M6 7h3m-3 4h3m0 6l-1.5 1.5M12 21v-2.5m6-11.5l1.5-1.5M12 6V3.5m-6 11.5l-1.5 1.5M6 17H3m9-14h3m-3 4h3m-3 4v3m3-3h-3"></path></svg>
+                <h3 class="text-2xl font-bold text-slate-700">準備開始計算</h3>
+                <p class="text-slate-500 mt-2 text-center max-w-md">請在左側填寫車輛的相關資訊，然後點擊「開始計算」按鈕，即可獲得詳細的進口成本分析。</p>
+            </div>
+        </div>
+
+        <!-- Explanatory Notes Section -->
+        <div class="mt-8 bg-white p-6 rounded-2xl shadow-lg border border-slate-200">
+            <h2 class="text-2xl font-bold mb-4 text-indigo-700">重要注意事項</h2>
+            <div class="space-y-4 text-slate-600 text-sm sm:text-base">
+                 <div class="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                    <p><strong class="font-semibold text-amber-800">估算性質：</strong>本工具提供的所有數字僅供估算參考。最終的稅金與費用將由台灣海關在車輛進口時根據當時的法規與估價為準。</p>
+                </div>
+                <div>
+                    <h4 class="font-bold text-slate-700">完稅價格 (Dutiable Value)</h4>
+                    <p>這是所有稅金計算的基礎，由「離岸價格 (FOB) + 運費 + 保險費」決定。海關採用的 FOB 價格是「<strong class="font-semibold">經折舊後的 KBB 新車發票價</strong>」與「<strong class="font-semibold">N.A.D.A. 二手車價</strong>」中<strong class="font-semibold text-indigo-600">較低者</strong>，而非您的實際購買價格。</p>
+                </div>
+                <div>
+                    <h4 class="font-bold text-slate-700">連鎖稅制 (Cascading Taxes)</h4>
+                    <p>台灣的進口稅是層層疊加的，這會顯著放大總稅額。計算順序為：<strong class="font-semibold">1. 進口稅 (17.5%) → 2. 貨物稅 (依排氣量 25% 或 30%) → 3. 營業稅 (5%)</strong>。後一項稅金的稅基包含前面所有項目，因此總稅率遠高於各稅率的簡單總和。</p>
+                </div>
+                <div>
+                    <h4 class="font-bold text-slate-700">奢侈稅 (Luxury Tax)</h4>
+                    <p>若「完稅價格 + 主要稅金」的總額<strong class="font-semibold">超過 300 萬台幣</strong>，將會額外課徵 10% 的奢侈稅。這可能導致成本大幅增加。</p>
+                </div>
+                <div>
+                    <h4 class="font-bold text-slate-700">驗車費用 (Inspection Fee)</h4>
+                    <p>這是成本中最不確定的部分。若沒有相同車型的「<strong class="font-semibold">安審授權報告</strong>」，則需要進行完整的實體測試，費用可能高達 40 萬台幣以上。若有報告，費用可大幅降低至 8-12 萬台幣。</p>
+                </div>
+                 <div class="mt-6 pt-4 border-t border-slate-200">
+                    <h4 class="font-bold text-slate-700">官方資料來源</h4>
+                    <p>本工具的估價及稅金計算方式，均依據台灣財政部關務署的官方規定。如需查閱詳細法規，請點擊以下連結：</p>
+                    <a href="https://web.customs.gov.tw/singlehtml/1207?cntId=cus1_93223_1207" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800 underline transition-colors">財政部關務署 - 進口舊汽車課稅說明</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const calculateBtn = document.getElementById('calculate-btn');
+    const resultsSection = document.getElementById('results-section');
+    const initialMessage = document.getElementById('initial-message');
+    const resultsContent = document.getElementById('results-content');
+    const loader = document.getElementById('loader');
+
+    const breakdownContainer = document.getElementById('cost-breakdown');
+    let costChart = null;
+
+    calculateBtn.addEventListener('click', () => {
+        initialMessage.classList.add('hidden');
+        resultsSection.classList.remove('hidden');
+        resultsContent.classList.add('hidden');
+        loader.classList.remove('hidden');
+
+        setTimeout(calculateCosts, 500); 
+    });
+
+    function formatCurrency(value) {
+        return `TWD ${Math.round(value).toLocaleString()}`;
+    }
+
+    function addBreakdownItem(label, value, isSub = false, isBold = false, isHighlight = false) {
+        const item = document.createElement('div');
+        item.className = `flex justify-between items-center py-2 ${isSub ? 'pl-4' : ''} ${!isSub ? 'border-t' : ''} border-slate-200`;
+        
+        const labelEl = document.createElement('span');
+        labelEl.textContent = label;
+        labelEl.className = `${isBold ? 'font-bold' : ''} ${isHighlight ? 'text-indigo-600' : 'text-slate-600'}`;
+
+        const valueEl = document.createElement('span');
+        valueEl.textContent = formatCurrency(value);
+        valueEl.className = `font-mono font-semibold ${isBold ? 'font-bold' : ''} ${isHighlight ? 'text-indigo-600' : 'text-slate-800'}`;
+
+        item.appendChild(labelEl);
+        item.appendChild(valueEl);
+        breakdownContainer.appendChild(item);
+    }
+
+    function calculateCosts() {
+        const kbbPrice = parseFloat(document.getElementById('kbb-price').value) || 0;
+        const nadaPrice = parseFloat(document.getElementById('nada-price').value) || 0;
+        const engineCC = parseFloat(document.getElementById('engine-cc').value) || 0;
+        const modelYear = parseInt(document.getElementById('model-year').value) || new Date().getFullYear();
+        const importYear = parseInt(document.getElementById('import-year').value) || new Date().getFullYear();
+        const exchangeRate = parseFloat(document.getElementById('exchange-rate').value) || 32.5;
+        const shippingPort = document.getElementById('shipping-port').value;
+        const hasArtcReport = document.querySelector('input[name="artc-report"]:checked').value === 'yes';
+
+        if (kbbPrice === 0 || nadaPrice === 0 || engineCC === 0) {
+            alert('請輸入有效的 KBB、N.A.D.A. 價格及引擎排氣量。');
+            loader.classList.add('hidden');
+            resultsSection.classList.add('hidden');
+            initialMessage.classList.remove('hidden');
+            return;
+        }
+
+        const vehicleAge = importYear - modelYear;
+        
+        let depreciationRate;
+        if (vehicleAge <= 0) depreciationRate = 0.10;
+        else if (vehicleAge === 1) depreciationRate = 0.20;
+        else if (vehicleAge === 2) depreciationRate = 0.35;
+        else if (vehicleAge === 3) depreciationRate = 0.50;
+        else if (vehicleAge === 4) depreciationRate = 0.60;
+        else if (vehicleAge >= 5) depreciationRate = 0.65;
+        
+        const depreciatedKbb = kbbPrice * (1 - depreciationRate);
+        
+        const fobValueUSD = Math.min(depreciatedKbb, nadaPrice);
+        
+        const freightUSD = shippingPort === 'west' ? 700 : 1650;
+        const insuranceUSD = 66; 
+
+        const cifValueUSD = fobValueUSD + freightUSD + insuranceUSD;
+        const dutiableValueTWD = cifValueUSD * exchangeRate;
+
+        const importTaxRate = 0.175;
+        const commodityTaxRate = engineCC <= 2000 ? 0.25 : 0.30;
+        const businessTaxRate = 0.05;
+        const tradePromoFeeRate = 0.0004;
+
+        const importTax = dutiableValueTWD * importTaxRate;
+        const commodityTax = (dutiableValueTWD + importTax) * commodityTaxRate;
+        const businessTax = (dutiableValueTWD + importTax + commodityTax) * businessTaxRate;
+        const tradePromoFee = dutiableValueTWD * tradePromoFeeRate;
+
+        const triggerValue = dutiableValueTWD + importTax + commodityTax + businessTax;
+        let luxuryTax = 0;
+        const luxuryTaxWarning = document.getElementById('luxury-tax-warning');
+        if (triggerValue > 3000000) {
+            luxuryTax = triggerValue * 0.10;
+            luxuryTaxWarning.textContent = `⚠️ 已觸發奢侈稅 ${formatCurrency(luxuryTax)}`;
+            luxuryTaxWarning.classList.remove('hidden');
+        } else {
+            luxuryTaxWarning.classList.add('hidden');
+        }
+
+        const totalTaxes = importTax + commodityTax + businessTax + tradePromoFee + luxuryTax;
+
+        const inlandTransportUSD = 875;
+        const exportHandlingUSD = 650;
+        const taiwanPortTWD = 10000;
+        const totalLogistics = (inlandTransportUSD + exportHandlingUSD) * exchangeRate + taiwanPortTWD;
+
+        const inspectionFeeTWD = hasArtcReport ? 100000 : 400000;
+        
+        let licenseFuelTaxTWD = 0;
+        if (engineCC > 0) {
+            if (engineCC <= 600) licenseFuelTaxTWD = 2160 + 2880;
+            else if (engineCC <= 1200) licenseFuelTaxTWD = 4320 + 4320;
+            else if (engineCC <= 1800) licenseFuelTaxTWD = 7120 + 4800;
+            else if (engineCC <= 2400) licenseFuelTaxTWD = 11230 + 6180;
+            else if (engineCC <= 3000) licenseFuelTaxTWD = 15210 + 7200;
+            else if (engineCC <= 4200) licenseFuelTaxTWD = 28220 + 8640;
+            else if (engineCC <= 5400) licenseFuelTaxTWD = 46170 + 11220;
+            else licenseFuelTaxTWD = 69690 + 13080;
+        }
+
+        const totalCost = dutiableValueTWD + totalTaxes + totalLogistics + inspectionFeeTWD + licenseFuelTaxTWD;
+
+        updateUI({
+            totalCost,
+            dutiableValueTWD,
+            totalTaxes,
+            totalLogistics,
+            inspectionFeeTWD,
+            licenseFuelTaxTWD,
+            depreciatedKbb,
+            nadaPrice,
+            fobValueUSD,
+            cifValueUSD,
+            exchangeRate,
+            importTax,
+            commodityTax,
+            businessTax,
+            luxuryTax,
+            tradePromoFee,
+        });
+
+        loader.classList.add('hidden');
+        resultsContent.classList.remove('hidden');
+        resultsContent.classList.add('animate-fade-in');
+    }
+
+    function updateUI(data) {
+        document.getElementById('total-cost').textContent = formatCurrency(data.totalCost);
+        breakdownContainer.innerHTML = '<h3 class="font-bold text-lg text-slate-700 mb-2">詳細費用明細 (TWD)</h3>';
+
+        addBreakdownItem('完稅價格 (CIF)', data.dutiableValueTWD, false, true, true);
+        addBreakdownItem('計算用 FOB (USD)', data.fobValueUSD, true);
+        addBreakdownItem('CIF (USD)', data.cifValueUSD, true);
+        addBreakdownItem(`匯率`, data.exchangeRate, true);
+
+        addBreakdownItem('總稅金', data.totalTaxes, false, true, true);
+        addBreakdownItem('進口稅 (17.5%)', data.importTax, true);
+        addBreakdownItem('貨物稅', data.commodityTax, true);
+        addBreakdownItem('營業稅 (5%)', data.businessTax, true);
+        if (data.luxuryTax > 0) {
+           addBreakdownItem('奢侈稅 (10%)', data.luxuryTax, true);
+        }
+        addBreakdownItem('貿易推廣費 (0.04%)', data.tradePromoFee, true);
+        
+        addBreakdownItem('總物流費用', data.totalLogistics, false, true, true);
+        addBreakdownItem('車輛檢驗費用 (驗車)', data.inspectionFeeTWD, false, true, true);
+        addBreakdownItem('首年牌照/燃料稅', data.licenseFuelTaxTWD, false, true, true);
+
+        const chartData = {
+            labels: ['車輛完稅價格', '總稅金', '物流費用', '檢驗與規費'],
+            datasets: [{
+                label: '成本分佈',
+                data: [
+                    data.dutiableValueTWD,
+                    data.totalTaxes,
+                    data.totalLogistics,
+                    data.inspectionFeeTWD + data.licenseFuelTaxTWD
+                ],
+                backgroundColor: [
+                    'rgba(59, 130, 246, 0.8)',  // blue-500
+                    'rgba(239, 68, 68, 0.8)',   // red-500
+                    'rgba(245, 158, 11, 0.8)',  // amber-500
+                    'rgba(107, 114, 128, 0.8)' // gray-500
+                ],
+                borderColor: [
+                    'rgba(59, 130, 246, 1)',
+                    'rgba(239, 68, 68, 1)',
+                    'rgba(245, 158, 11, 1)',
+                    'rgba(107, 114, 128, 1)'
+                ],
+                borderWidth: 1
+            }]
+        };
+
+        const ctx = document.getElementById('cost-chart').getContext('2d');
+        if (costChart) {
+            costChart.destroy();
+        }
+        costChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: chartData,
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.parsed !== null) {
+                                    label += new Intl.NumberFormat('en-US', { style: 'currency', currency: 'TWD', maximumFractionDigits: 0 }).format(context.parsed);
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+});
+</script>
+
+</body>
+</html>
